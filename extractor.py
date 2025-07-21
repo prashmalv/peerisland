@@ -1,7 +1,22 @@
 import json
+import time
 from code_loader import load_code_from_directory
 from chunker import split_code_to_chunks
 from llm_agent import analyze_code_chunk
+
+def safe_analyze(chunk, retries=3):
+    """
+    Handles retries and connection errors during LLM analysis.
+    """
+    for attempt in range(retries):
+        try:
+            return analyze_code_chunk(chunk)
+        except Exception as e:
+            print(f"⚠️ Attempt {attempt+1} failed for {chunk['path']}: {e}")
+            time.sleep(2 * (attempt + 1))  # exponential backoff
+    return {
+        "error": "Connection failed after retries"
+    }
 
 def run_extraction(project_path, output_file="output.json"):
     print("📥 Loading code files...")
@@ -13,23 +28,20 @@ def run_extraction(project_path, output_file="output.json"):
     structured_data = []
 
     for idx, chunk in enumerate(chunks):
-        print(f"🤖 Analyzing chunk {idx + 1}/{len(chunks)} from {chunk['path']}...")
+        print(f"\n🤖 Analyzing chunk {idx + 1}/{len(chunks)} from {chunk['path']}...")
 
-        try:
-            response = analyze_code_chunk(chunk)
-            structured_data.append({
-                "file": chunk["path"],
-                "analysis": response
-            })
+        response = safe_analyze(chunk)
 
-        except Exception as e:
-            print(f"❌ Error processing {chunk['path']}: {e}")
+        structured_data.append({
+            "file": chunk["path"],
+            "analysis": response
+        })
 
-    print(f"\n💾 Saving output to {output_file} ...")
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(structured_data, f, indent=2)
+        # 💾 Save after each successful chunk to avoid total loss
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(structured_data, f, indent=2)
 
-    print("✅ Extraction complete!")
+    print(f"\n✅ Extraction complete. Output saved to {output_file}")
 
 # Entry point
 if __name__ == "__main__":
